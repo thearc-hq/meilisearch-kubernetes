@@ -1,0 +1,67 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: "{{ include "meilisearch.fullname" . }}-data-dump"
+  labels:
+    {{- include "meilisearch.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-upgrade
+    "helm.sh/hook-delete-policy": hook-succeeded
+
+spec:
+  backoffLimit: 1
+  template:
+    metadata:
+      name: "{{ include "meilisearch.fullname" . }}-data-dump"
+      labels:
+        {{- include "meilisearch.labels" . | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: data-dump
+        image: "alpine:3.16"
+        command: 
+          - "/bin/sh"
+          - "-c"
+          - |
+            apk add curl jq
+            function meili() {
+                method=${1}
+                path=${2}
+                shift 2
+                curl -s \
+                {{- if or (eq (include "isProductionWithoutMasterKey" .) "true") .Values.auth.existingMasterKeySecret }}
+                -H "Authorization: Bearer ${MEILI_MASTER_KEY}" \
+                {{- end }}
+                -X ${method} \
+                $* \
+                {{ include "meilisearch.fullname" . }}:{{ .Values.service.port }}${path}
+            }
+            function task_running(){
+              status="$(meili GET "/tasks/${1}" | jq .status)"
+              case "${status}" in
+                succeeded|failed)
+                  return 1
+                  ;;
+                enqueued|processing)
+                  return 0
+                  ;;
+                *)
+                 return 1
+                 ;;
+              esac
+            }
+            task_uid="$(meili POST /dumps | jq .taskUid)"
+            iterations=0
+            while task_running "$task_uid"; do
+              sleep 0.1
+              iterations=$((iterations + 1))
+              if [ ${iterations} -ge "600" ]; then
+                exit 1
+              fi
+            done
+        {{- if or (eq (include "isProductionWithoutMasterKey" .) "true") .Values.auth.existingMasterKeySecret }}
+        envFrom:
+        - secretRef:
+            name: {{ template "secretMasterKeyName" . }}
+        {{- end }}

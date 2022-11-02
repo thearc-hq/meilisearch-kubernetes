@@ -22,15 +22,13 @@ spec:
   {{- if and (.Capabilities.APIVersions.Has "networking.k8s.io/v1") (.Values.ingress.className) }}
   ingressClassName: {{ .Values.ingress.className }}
   {{- end }}
-  {{- if .Values.ingress.tls }}
+  {{- if .Values.ingress.tls.enabled }}
   tls:
-    {{- range .Values.ingress.tls }}
     - hosts:
-      {{- range .hosts }}
+      {{- range .Values.ingress.hosts }}
         - {{ . | quote }}
       {{- end }}
-      secretName: {{ .secretName }}
-    {{- end }}
+      secretName: {{ .Values.ingress.tls.secretName }}
   {{- end }}
   rules:
   {{- range .Values.ingress.hosts }}

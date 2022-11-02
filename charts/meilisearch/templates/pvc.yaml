@@ -5,9 +5,10 @@ metadata:
   name: {{ include "meilisearch.fullname" . }}
   labels:
     {{- include "meilisearch.labels" . | nindent 4 }}
-  {{- with .Values.persistence.annotations }}
   annotations:
-    {{ toYaml . | nindent 4 }}
+    "helm.sh/resource-policy": keep
+  {{- with .Values.persistence.annotations }}
+    {{ toYaml . | indent 4 }}
   {{- end }}
 spec:
   accessModes:

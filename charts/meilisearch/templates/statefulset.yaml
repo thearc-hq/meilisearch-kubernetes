@@ -30,6 +30,40 @@ spec:
           persistentVolumeClaim:
             claimName: {{ include "meilisearch.fullname" . }}
       {{- end }}
+      {{- if .Values.persistence.enabled }}
+      initContainers:
+        - name: {{ .Chart.Name }}-init
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}  
+          volumeMounts:
+            - name: {{ .Values.persistence.volume.name }}
+              mountPath: {{ .Values.persistence.volume.mountPath }}
+          envFrom:
+          {{- if or (eq (include "isProductionWithoutMasterKey" .) "true") .Values.auth.existingMasterKeySecret }}
+            - secretRef:
+                name: {{ template "secretMasterKeyName" . }}
+          {{- end }}
+          command: 
+            - "/bin/sh"
+          args: 
+            - '-c'
+            - |
+              mkdir -p "{{ template "meilisearch.dumpsDir" . }}"
+              cd "{{ template "meilisearch.dumpsDir" . }}"
+              latest=$(find . -type f | sort | tail -n 1)
+              if [ "x$latest" != "x" ]; then
+                ln -s -f "$latest" latest.dump
+              fi
+              if [ -e "{{ .Values.persistence.volume.mountPath }}/data.ms" ]; then
+                latest_version="$(cat "{{ .Values.persistence.volume.mountPath }}/data.ms/VERSION")"
+                if [ "v$latest_version" != "{{ .Values.image.tag }}" ]; then
+                  rm -r "{{ .Values.persistence.volume.mountPath }}/data.ms"
+                fi
+              fi
+              for f in $(find . -type f | sort -r | awk 'NR>2'); do
+                rm $f
+              done
+      {{- end }}
       containers:
         - name: {{ .Chart.Name }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -39,17 +73,32 @@ spec:
             - name: {{ .Values.persistence.volume.name }}
               mountPath: {{ .Values.persistence.volume.mountPath }}
           {{- end }}
-          envFrom:
-          - configMapRef:
-              name: {{ template "meilisearch.fullname" . }}-environment
+          env:
+            {{- if .Values.persistence.enabled }}
+            - name: MEILI_DUMPS_DIR
+              value: "{{ template "meilisearch.dumpsDir" . }}"
+            {{ end -}}
+            {{- range $key, $value := .Values.environment }}
+            - name: {{ $key }}
+              value: {{ $value | quote}}
+            {{- end }}
           {{- if or (eq (include "isProductionWithoutMasterKey" .) "true") .Values.auth.existingMasterKeySecret }}
+          envFrom:
           - secretRef:
               name: {{ template "secretMasterKeyName" . }}
           {{- end }}
-          {{- if ne (len .Values.command) 0 }}
           command:
-{{ toYaml .Values.command | indent 12 }}
-          {{- end }}
+            - "/bin/meilisearch"
+          args:
+            {{- if .Values.persistence.enabled }}
+            - "--import-dump"
+            - "{{ template "meilisearch.dumpsDir" . }}/latest.dump"
+            - "--ignore-missing-dump"
+            - "--ignore-dump-if-db-exists"
+            {{- end }}
+            {{- with .Values.command -}}
+            {{ toYaml . | nindent 12 }}
+            {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.container.containerPort }}

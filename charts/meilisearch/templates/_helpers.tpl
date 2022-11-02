@@ -69,3 +69,7 @@ Checks for environment being set to "production" without a master key being set 
         {{- printf "%s-master-key" (include "meilisearch.fullname" .) -}}
     {{- end -}}
 {{- end -}}
+
+{{- define "meilisearch.dumpsDir" -}}
+{{ .Values.persistence.volume.mountPath }}/dumps
+{{- end -}}
